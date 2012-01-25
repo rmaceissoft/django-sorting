@@ -48,16 +48,20 @@ class SortAnchorNode(template.Node):
     def render(self, context):
         request = context['request']
         getvars = request.GET.copy()
-        if 'sort' in getvars:
-            sortby = getvars['sort']
-            del getvars['sort']
+        if context.has_key('default_sort_field'):
+            sortby = context['default_sort_field']
+            sortdir = context['default_sort_dir']
         else:
-            sortby = ''
-        if 'dir' in getvars:
-            sortdir = getvars['dir']
-            del getvars['dir']
-        else:
-            sortdir = ''
+            if 'sort' in getvars:
+                sortby = getvars['sort']
+                del getvars['sort']
+            else:
+                sortby = ''
+            if 'dir' in getvars:
+                sortdir = getvars['dir']
+                del getvars['dir']
+            else:
+                sortdir = ''
         if sortby == self.field:
             getvars['dir'] = sort_directions[sortdir]['inverse']
             icon = sort_directions[sortdir]['icon']
@@ -78,22 +82,33 @@ class SortAnchorNode(template.Node):
 
 def autosort(parser, token):
     bits = [b.strip('"\'') for b in token.split_contents()]
-    if len(bits) != 2:
-        raise TemplateSyntaxError, "autosort tag takes exactly one argument"
-    return SortedDataNode(bits[1])
+    if len(bits) == 1:
+        raise TemplateSyntaxError, "autosort tag takes at least one argument"
+    kwargs = dict()
+    if len(bits) > 2:
+        kwargs['default_sort_field'] = bits[2]
+    if len(bits) > 3:
+        kwargs['default_sort_dir'] = bits[3]
+    return SortedDataNode(bits[1], **kwargs)
 
 class SortedDataNode(template.Node):
     """
     Automatically sort a queryset with {% autosort queryset %}
     """
-    def __init__(self, queryset_var, context_var=None):
+    def __init__(self, queryset_var, default_sort_field=None, default_sort_dir='desc', context_var=None):
         self.queryset_var = template.Variable(queryset_var)
+        self.default_sort_field = default_sort_field
+        self.default_sort_dir = default_sort_dir
         self.context_var = context_var
 
     def render(self, context):
         key = self.queryset_var.var
         value = self.queryset_var.resolve(context)
         order_by = context['request'].field
+        if len(order_by) == 1 and self.default_sort_field:
+            context['default_sort_field'] = self.default_sort_field
+            context['default_sort_dir'] = self.default_sort_dir
+            order_by = (self.default_sort_dir == 'desc' and '-' or '') + self.default_sort_field
         if len(order_by) > 1:
             try:
                 context[key] = value.order_by(order_by)
